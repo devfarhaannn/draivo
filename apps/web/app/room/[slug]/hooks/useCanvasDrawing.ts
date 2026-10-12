@@ -306,71 +306,71 @@ export function useCanvasDrawing({
             event.clientY
         );
 
-        // SELECT AND MOVE
-        // if (activeTool === "select") {
-        //     const selected = hitTest(world, elements);
+        //SELECT AND MOVE
+        if (activeTool === "select") {
+            const selected = hitTest(world, elements);
 
-        //     if (!selected) {
-        //         selectElement(null);
-        //         return;
-        //     }
+            if (!selected) {
+                selectElement(null);
+                return;
+            }
 
-        //     selectElement(selected.id);
+            selectElement(selected.id);
 
-        //     if (
-        //         selected.type === "text" &&
-        //         event.detail === 2
-        //     ) {
-        //         drawingRef.current = {
-        //             active: false,
-        //         };
+            if (
+                selected.type === "text" &&
+                event.detail === 2
+            ) {
+                drawingRef.current = {
+                    active: false,
+                };
 
-        //         onStartTextEditing({
-        //             x: selected.x,
-        //             y: selected.y,
-        //             text: selected.text,
-        //             fontSize: selected.fontSize ?? 20,
-        //             elementId: selected.id,
-        //         });
+                onStartTextEditing({
+                    x: selected.x,
+                    y: selected.y,
+                    text: selected.text,
+                    fontSize: selected.fontSize ?? 20,
+                    elementId: selected.id,
+                });
 
-        //         return;
-        //     }
+                return;
+            }
 
-        //     if (
-        //         selected.type === "note" &&
-        //         event.detail === 2
-        //     ) {
-        //         drawingRef.current = {
-        //             active: false,
-        //         };
+            if (
+                selected.type === "note" &&
+                event.detail === 2
+            ) {
+                drawingRef.current = {
+                    active: false,
+                };
 
-        //         onStartNoteEditing({
-        //             x: selected.x,
-        //             y: selected.y,
-        //             width: selected.width,
-        //             height: selected.height,
-        //             text: selected.text,
-        //             elementId: selected.id,
-        //         });
+                onStartNoteEditing({
+                    x: selected.x,
+                    y: selected.y,
+                    width: selected.width,
+                    height: selected.height,
+                    text: selected.text,
+                    elementId: selected.id,
+                });
 
-        //         return;
-        //     }
+                return;
+            }
 
-        //     event.currentTarget.setPointerCapture(
-        //         event.pointerId
-        //     );
+            event.currentTarget.setPointerCapture(
+                event.pointerId
+            );
 
-        //     drawingRef.current = {
-        //         active: true,
-        //         mode: "move",
-        //         elementId: selected.id,
-        //         tool: "select",
-        //         lastWorld: world,
-        //         beforeElements: beginHistory(),
-        //     };
+            drawingRef.current = {
+                active: true,
+                mode: "move",
+                elementId: selected.id,
+                tool: "select",
+                lastWorld: world,
+                beforeElements: beginHistory(),
+            };
 
-        //     return;
-        // }
+            return;
+        }
 
         // ERASER
         if (activeTool === "eraser") {

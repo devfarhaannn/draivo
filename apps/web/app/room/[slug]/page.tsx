@@ -25,6 +25,9 @@ import {
     Users,
     X,
     type LucideIcon,
+    Play,
+    Check,
+    Copy,
 } from "lucide-react";
 
 import {
@@ -1042,108 +1045,109 @@ export default function RoomPage() {
 
             {/* SHARE BOARD DIALOG */}
             {shareOpen && (
-                <div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm"
-                    onClick={() => setShareOpen(false)}
+    <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 px-4 py-6 backdrop-blur-[3px]"
+        onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+                setShareOpen(false);
+            }
+        }}
+    >
+        <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-dialog-title"
+            className="relative w-full max-w-[570px] rounded-xl border border-black/[0.06] bg-white px-7 py-8 text-[#25252b] shadow-[0_28px_90px_rgba(0,0,0,.22)] sm:px-10 sm:py-10"
+        >
+            <button
+                type="button"
+                aria-label="Close share dialog"
+                onClick={() => setShareOpen(false)}
+                className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-lg text-[#85858e] transition-colors hover:bg-[#f3f3f7] hover:text-[#373741]"
+            >
+                <X className="h-4 w-4" />
+            </button>
+
+            <h2
+                id="share-dialog-title"
+                className="text-center text-xl font-bold tracking-[-0.02em] text-[#625DF5] sm:text-[21px]"
+            >
+                Live collaboration
+            </h2>
+
+            <p className="mt-7 text-center text-sm text-[#34343b]">
+                Invite people to collaborate on your drawing.
+            </p>
+
+            <p className="mx-auto mt-4 max-w-[470px] text-center text-sm leading-6 text-[#45454e]">
+                Start a live session to work on the same whiteboard together.
+                Your existing room and sign-in are used for access.
+            </p>
+
+            <div className="mt-6 flex justify-center">
+                <button
+                    type="button"
+                    onClick={() => void copyShareLink()}
+                    className="inline-flex h-[50px] min-w-[170px] items-center justify-center gap-3 rounded-lg bg-[#625DF5] px-6 text-sm font-semibold text-white shadow-[0_5px_12px_rgba(98,93,245,.18)] transition-colors hover:bg-[#554ff0] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#625DF5]/25"
                 >
-                    <section
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="share-board-title"
-                        onClick={(event) => event.stopPropagation()}
-                        className={[
-                            "w-full max-w-md rounded-2xl border p-5 shadow-2xl",
-                            surfaceClass,
-                        ].join(" ")}
-                    >
-                        <div className="flex items-start justify-between gap-4">
-                            <div>
-                                <h2
-                                    id="share-board-title"
-                                    className="text-base font-semibold"
-                                >
-                                    Share this board
-                                </h2>
+                    <Play className="h-4 w-4 fill-current" />
+                    Start session
+                </button>
+            </div>
 
-                                <p
-                                    className={[
-                                        "mt-1 text-xs",
-                                        mutedTextClass,
-                                    ].join(" ")}
-                                >
-                                    Send this link to someone signed in to Draivo.
-                                </p>
-                            </div>
+            <div className="my-8 flex items-center gap-3 text-sm text-[#27272e]">
+                <span className="h-px flex-1 bg-[#e7e7eb]" />
+                <span>Or</span>
+                <span className="h-px flex-1 bg-[#e7e7eb]" />
+            </div>
 
-                            <button
-                                type="button"
-                                aria-label="Close share dialog"
-                                onClick={() => setShareOpen(false)}
-                                className="rounded-lg p-1 text-current opacity-60 hover:bg-black/5 hover:opacity-100"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
+            <h3 className="text-center text-xl font-bold tracking-[-0.02em] text-[#625DF5] sm:text-[21px]">
+                Shareable link
+            </h3>
 
-                        {roomLoadError && (
-                            <p className="mt-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500">
-                                {roomLoadError}
-                            </p>
-                        )}
+            <p className="mt-5 text-center text-sm text-[#34343b]">
+                Export as a read-only link.
+            </p>
 
-                        <label
-                            htmlFor="draivo-share-link"
-                            className="mt-5 block text-xs font-medium"
-                        >
-                            Board link
-                        </label>
+            <div className="mt-6 flex justify-center">
+                <button
+                    type="button"
+                    onClick={() => void copyShareLink()}
+                    className="inline-flex h-[50px] min-w-[190px] items-center justify-center gap-3 rounded-lg bg-[#625DF5] px-6 text-sm font-semibold text-white shadow-[0_5px_12px_rgba(98,93,245,.18)] transition-colors hover:bg-[#554ff0] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#625DF5]/25"
+                >
+                    <Link2 className="h-4 w-4" />
+                    Export to Link
+                </button>
+            </div>
 
-                        <div className="mt-2 flex gap-2">
-                            <input
-                                id="draivo-share-link"
-                                readOnly
-                                value={shareLink}
-                                onFocus={(event) =>
-                                    event.currentTarget.select()
-                                }
-                                className={[
-                                    "min-w-0 flex-1 rounded-xl border px-3 py-2.5 text-xs outline-none",
-                                    inputClass,
-                                ].join(" ")}
-                            />
-
-                            <button
-                                type="button"
-                                onClick={() => void copyShareLink()}
-                                className="shrink-0 rounded-xl bg-[#625DF5] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#554ff0]"
-                            >
-                                {linkCopied ? "Copied" : "Copy link"}
-                            </button>
-                        </div>
-
-                        <div
-                            className={[
-                                "mt-4 flex items-center justify-between text-xs",
-                                mutedTextClass,
-                            ].join(" ")}
-                        >
-                            <span>People connected</span>
-                            <span className="font-semibold tabular-nums">
-                                {participantCount}
-                            </span>
-                        </div>
-
-                        <p
-                            className={[
-                                "mt-3 text-[11px] leading-5",
-                                mutedTextClass,
-                            ].join(" ")}
-                        >
-                            Everyone in this room sees canvas changes in real time while connected.
-                        </p>
-                    </section>
-                </div>
+            {roomLoadError && (
+                <p
+                    role="status"
+                    className="mt-5 rounded-lg border border-[#e6e4ff] bg-[#f7f6ff] px-3 py-2.5 text-xs leading-5 text-[#5952d9]"
+                >
+                    {roomLoadError}
+                </p>
             )}
+
+            <div className="mt-5 flex justify-center">
+                <button
+                    type="button"
+                    onClick={() => void copyShareLink()}
+                    className="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium text-[#6f6f79] transition-colors hover:bg-[#f4f4f8] hover:text-[#33333b]"
+                >
+                    {linkCopied ? (
+                        <Check className="h-3.5 w-3.5" />
+                    ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {linkCopied
+                        ? "Board link copied"
+                        : "Copy current room link"}
+                </button>
+            </div>
+        </section>
+    </div>
+)}
 
             {/* FLOATING CONTEXTUAL PROPERTIES PANEL */}
 
