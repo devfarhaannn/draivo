@@ -37,6 +37,10 @@ import type {
     ToolId,
 } from "../types/whiteboard";
 
+const WS_URL =
+    process.env.NEXT_PUBLIC_WS_URL ??
+    "ws://localhost:8080";
+
 type WhiteboardCanvasProps = {
     zoom: number;
     onZoomChange: (zoom: number) => void;
@@ -52,9 +56,18 @@ type WhiteboardCanvasProps = {
     onPropertyUpdaterReady?: (
         updater: ElementPropertyUpdater
     ) => void;
+
+    roomId: number | null;
+    token: string | null;
+    onParticipantsChange?: (count: number) => void;
 };
 
 export default function WhiteboardCanvas({
+
+    roomId,
+    token,
+    onParticipantsChange,
+
     zoom,
     onZoomChange,
     background,
@@ -83,6 +96,7 @@ export default function WhiteboardCanvas({
         redo,
         canUndo,
         canRedo,
+        replaceElements,
     } = useWhiteboard();
 
     const [
@@ -94,6 +108,174 @@ export default function WhiteboardCanvas({
         noteEditor,
         setNoteEditor,
     ] = useState<NoteEditingTarget | null>(null);
+
+    // WEBSOCKET COLLABORATION
+
+    const socketRef = useRef<WebSocket | null>(null);
+
+    const hasInitialSnapshotRef = useRef(false);
+
+    const lastIncomingSnapshotRef = useRef<string | null>(null);
+
+    const replaceElementsRef = useRef(replaceElements);
+
+    const onParticipantsChangeRef = useRef(onParticipantsChange);
+
+    // Keep the latest callbacks available without reconnecting the socket.
+    useEffect(() => {
+        replaceElementsRef.current = replaceElements;
+        onParticipantsChangeRef.current = onParticipantsChange;
+    }, [replaceElements, onParticipantsChange]);
+
+    // Connect to the existing WebSocket backend and join this room.
+    useEffect(() => {
+        if (roomId === null || !token) {
+            return;
+        }
+
+        const socket = new WebSocket(
+            `${WS_URL}?token=${encodeURIComponent(token)}`
+        );
+
+        socketRef.current = socket;
+        hasInitialSnapshotRef.current = false;
+        lastIncomingSnapshotRef.current = null;
+
+        socket.onopen = () => {
+            socket.send(
+                JSON.stringify({
+                    type: "join_room",
+                    roomId,
+                    elements: [],
+                })
+            );
+        };
+
+        socket.onmessage = (event) => {
+            let message: {
+                type?: string;
+                roomId?: number;
+                elements?: unknown;
+                participants?: number;
+                message?: string;
+            };
+
+            try {
+                message = JSON.parse(String(event.data));
+            } catch {
+                console.error(
+                    "Invalid message received from WebSocket"
+                );
+                return;
+            }
+
+            if (message.type === "error") {
+                console.error(
+                    "WebSocket error:",
+                    message.message ?? "Unknown error"
+                );
+                return;
+            }
+
+            // Receive the shared canvas snapshot from the server.
+            if (
+                message.type === "canvas_state" &&
+                Number(message.roomId) === roomId &&
+                Array.isArray(message.elements)
+            ) {
+                const incomingElements =
+                    message.elements as CanvasElement[];
+
+                lastIncomingSnapshotRef.current =
+                    JSON.stringify(incomingElements);
+
+                hasInitialSnapshotRef.current = true;
+
+                replaceElementsRef.current(incomingElements);
+
+                return;
+            }
+
+            // Receive the room participant count.
+            if (
+                message.type === "room_presence" &&
+                Number(message.roomId) === roomId
+            ) {
+                onParticipantsChangeRef.current?.(
+                    Number(message.participants) || 0
+                );
+            }
+        };
+
+        socket.onerror = (event) => {
+            console.error(
+                "WebSocket connection error:",
+                event
+            );
+        };
+
+        socket.onclose = () => {
+            if (socketRef.current === socket) {
+                socketRef.current = null;
+            }
+
+            onParticipantsChangeRef.current?.(0);
+        };
+
+        return () => {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(
+                    JSON.stringify({
+                        type: "leave_room",
+                        roomId,
+                    })
+                );
+            }
+
+            socket.close();
+
+            if (socketRef.current === socket) {
+                socketRef.current = null;
+            }
+
+            hasInitialSnapshotRef.current = false;
+            lastIncomingSnapshotRef.current = null;
+        };
+    }, [roomId, token]);
+
+    // Send local canvas changes to the other room participants.
+    useEffect(() => {
+        const socket = socketRef.current;
+
+        if (
+            roomId === null ||
+            !hasInitialSnapshotRef.current ||
+            !socket ||
+            socket.readyState !== WebSocket.OPEN
+        ) {
+            return;
+        }
+
+        const serializedElements = JSON.stringify(elements);
+
+        // Do not send a snapshot straight back after receiving it.
+        // This prevents clients from echoing updates to each other.
+        if (
+            serializedElements ===
+            lastIncomingSnapshotRef.current
+        ) {
+            lastIncomingSnapshotRef.current = null;
+            return;
+        }
+
+        socket.send(
+            JSON.stringify({
+                type: "canvas_update",
+                roomId,
+                elements,
+            })
+        );
+    }, [elements, roomId]);
 
     // TEXT EDITING
 
@@ -538,7 +720,7 @@ export default function WhiteboardCanvas({
             zoom,
             background,
             dark,
-            
+
         });
     }, [
         elements,

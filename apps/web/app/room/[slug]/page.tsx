@@ -50,6 +50,11 @@ import type {
     ToolId,
 } from "./types/whiteboard";
 
+
+const BACKEND_URL =
+    process.env.NEXT_PUBLIC_BACKEND_URL ??
+    "http://localhost:3001";
+
 const LIGHT_CANVAS_BACKGROUNDS = [
     "#ffffff",
     "#f5f5f5",
@@ -159,6 +164,27 @@ export default function RoomPage() {
 
     const slug = decodeURIComponent(params.slug);
 
+    const [roomId, setRoomId] =
+        useState<number | null>(null);
+
+    const [authToken, setAuthToken] =
+        useState<string | null>(null);
+
+    const [roomLoadError, setRoomLoadError] =
+        useState("");
+
+    const [participantCount, setParticipantCount] =
+        useState(0);
+
+    const [shareOpen, setShareOpen] =
+        useState(false);
+
+    const [shareLink, setShareLink] =
+        useState("");
+
+    const [linkCopied, setLinkCopied] =
+        useState(false);
+
     const [menuOpen, setMenuOpen] = useState(false);
     const [activeTool, setActiveTool] =
         useState<ToolId>("select");
@@ -210,6 +236,89 @@ export default function RoomPage() {
         ? DARK_CANVAS_BACKGROUNDS
         : LIGHT_CANVAS_BACKGROUNDS;
 
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const savedToken = localStorage.getItem("token");
+
+        if (!savedToken) {
+            router.push("/signin");
+            return;
+        }
+
+        setAuthToken(savedToken);
+
+        async function loadRoomId() {
+            try {
+                const response = await fetch(
+                    `${BACKEND_URL}/room/${encodeURIComponent(slug)}`
+                );
+
+                const data = await response.json();
+                const numericRoomId = Number(data?.room?.id);
+
+                if (
+                    !response.ok ||
+                    !Number.isInteger(numericRoomId) ||
+                    numericRoomId <= 0
+                ) {
+                    throw new Error(
+                        data?.message ?? "Board not found."
+                    );
+                }
+
+                if (!cancelled) {
+                    setRoomId(numericRoomId);
+                    setRoomLoadError("");
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setRoomLoadError(
+                        error instanceof Error
+                            ? error.message
+                            : "Could not load this board."
+                    );
+                }
+            }
+        }
+
+        void loadRoomId();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [slug, router]);
+
+    const handleParticipantsChange = useCallback(
+        (count: number) => {
+            setParticipantCount(count);
+        },
+        []
+    );
+
+    function openShareDialog() {
+        setShareLink(window.location.href);
+        setLinkCopied(false);
+        setShareOpen(true);
+        setMenuOpen(false);
+    }
+
+    async function copyShareLink() {
+        if (!shareLink) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(shareLink);
+            setLinkCopied(true);
+        } catch {
+            window.prompt(
+                "Copy this board link:",
+                shareLink
+            );
+        }
+    }
     /*
      * Load saved preferences.
      */
@@ -563,6 +672,9 @@ export default function RoomPage() {
                     handlePropertyUpdaterReady
                 }
                 onToolChange={handleToolChange}
+                roomId={roomId}
+                token={authToken}
+                onParticipantsChange={handleParticipantsChange}
             />
 
             {/* MENU DISMISS BACKDROP */}
@@ -654,7 +766,7 @@ export default function RoomPage() {
                             icon={Users}
                             title="Live collaboration..."
                             isDark={isDark}
-                            onClick={() => setMenuOpen(false)}
+                            onClick={openShareDialog}
                         />
 
                         <MenuItem
@@ -834,7 +946,7 @@ export default function RoomPage() {
                                         (
                                             canvasBackground === null &&
                                             effectiveCanvasBackground.toLowerCase() ===
-                                                color.toLowerCase()
+                                            color.toLowerCase()
                                         );
 
                                     return (
@@ -892,7 +1004,7 @@ export default function RoomPage() {
 
                 <button
                     type="button"
-                    onClick={() => setMenuOpen(false)}
+                    onClick={openShareDialog}
                     className="flex h-10 items-center gap-2 rounded-xl bg-[#625DF5] px-4 text-[11px] font-semibold text-white shadow-[0_8px_22px_rgba(98,93,245,.22)] transition-colors hover:bg-[#554ff0]"
                 >
                     <Users className="h-4 w-4" />
@@ -927,6 +1039,111 @@ export default function RoomPage() {
                     <PanelRight className="h-4 w-4" />
                 </button>
             </div>
+
+            {/* SHARE BOARD DIALOG */}
+            {shareOpen && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35 p-4 backdrop-blur-sm"
+                    onClick={() => setShareOpen(false)}
+                >
+                    <section
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="share-board-title"
+                        onClick={(event) => event.stopPropagation()}
+                        className={[
+                            "w-full max-w-md rounded-2xl border p-5 shadow-2xl",
+                            surfaceClass,
+                        ].join(" ")}
+                    >
+                        <div className="flex items-start justify-between gap-4">
+                            <div>
+                                <h2
+                                    id="share-board-title"
+                                    className="text-base font-semibold"
+                                >
+                                    Share this board
+                                </h2>
+
+                                <p
+                                    className={[
+                                        "mt-1 text-xs",
+                                        mutedTextClass,
+                                    ].join(" ")}
+                                >
+                                    Send this link to someone signed in to Draivo.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                aria-label="Close share dialog"
+                                onClick={() => setShareOpen(false)}
+                                className="rounded-lg p-1 text-current opacity-60 hover:bg-black/5 hover:opacity-100"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+
+                        {roomLoadError && (
+                            <p className="mt-4 rounded-lg bg-red-500/10 p-3 text-xs text-red-500">
+                                {roomLoadError}
+                            </p>
+                        )}
+
+                        <label
+                            htmlFor="draivo-share-link"
+                            className="mt-5 block text-xs font-medium"
+                        >
+                            Board link
+                        </label>
+
+                        <div className="mt-2 flex gap-2">
+                            <input
+                                id="draivo-share-link"
+                                readOnly
+                                value={shareLink}
+                                onFocus={(event) =>
+                                    event.currentTarget.select()
+                                }
+                                className={[
+                                    "min-w-0 flex-1 rounded-xl border px-3 py-2.5 text-xs outline-none",
+                                    inputClass,
+                                ].join(" ")}
+                            />
+
+                            <button
+                                type="button"
+                                onClick={() => void copyShareLink()}
+                                className="shrink-0 rounded-xl bg-[#625DF5] px-4 py-2.5 text-xs font-semibold text-white hover:bg-[#554ff0]"
+                            >
+                                {linkCopied ? "Copied" : "Copy link"}
+                            </button>
+                        </div>
+
+                        <div
+                            className={[
+                                "mt-4 flex items-center justify-between text-xs",
+                                mutedTextClass,
+                            ].join(" ")}
+                        >
+                            <span>People connected</span>
+                            <span className="font-semibold tabular-nums">
+                                {participantCount}
+                            </span>
+                        </div>
+
+                        <p
+                            className={[
+                                "mt-3 text-[11px] leading-5",
+                                mutedTextClass,
+                            ].join(" ")}
+                        >
+                            Everyone in this room sees canvas changes in real time while connected.
+                        </p>
+                    </section>
+                </div>
+            )}
 
             {/* FLOATING CONTEXTUAL PROPERTIES PANEL */}
 
@@ -1421,7 +1638,7 @@ export default function RoomPage() {
                                                 (
                                                     canvasBackground === null &&
                                                     effectiveCanvasBackground.toLowerCase() ===
-                                                        color.toLowerCase()
+                                                    color.toLowerCase()
                                                 );
 
                                             return (

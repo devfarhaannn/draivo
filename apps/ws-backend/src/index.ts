@@ -16,6 +16,22 @@ interface User {
 const users: User[] = [];
 
 
+
+// LIVE CANVAS STATE
+
+
+//  Keep the latest canvas for every room while this server is running.
+//  Later, we can persist this state in the database so it survives a
+//  WebSocket server restart.
+
+
+
+
+const roomCanvases = new Map<number, unknown[]>();
+
+const MAX_CANVAS_ELEMENTS = 10_000;
+const MAX_CANVAS_SIZE = 4 * 1024 * 1024;
+
 // CHECK JWT TOKEN
 
 
@@ -38,13 +54,19 @@ function checkUser(token: string): string | null {
 }
 
 
-// SEND ERROR HELPER
+/*
+| ERROR HELPER
+*/
 
 
 function sendError(
     ws: WebSocket,
     message: string
 ) {
+    if (ws.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
     ws.send(
         JSON.stringify({
             type: "error",
@@ -54,7 +76,55 @@ function sendError(
 }
 
 
-// WEBSOCKET CONNECTION
+ //ROOM BROADCAST HELPER
+
+
+function broadcastToRoom(
+    roomId: number,
+    payload: Record<string, unknown>,
+    excludeSocket?: WebSocket
+) {
+    for (const roomUser of users) {
+        if (
+            roomUser.ws !== excludeSocket &&
+            roomUser.rooms.includes(roomId) &&
+            roomUser.ws.readyState === WebSocket.OPEN
+        ) {
+            roomUser.ws.send(
+                JSON.stringify(payload)
+            );
+        }
+    }
+}
+
+
+
+// PARTICIPANT COUNT
+
+
+
+function getRoomParticipantCount(
+    roomId: number
+): number {
+    return users.filter(
+        (roomUser) =>
+            roomUser.rooms.includes(roomId) &&
+            roomUser.ws.readyState === WebSocket.OPEN
+    ).length;
+}
+
+function broadcastRoomPresence(
+    roomId: number
+) {
+    broadcastToRoom(roomId, {
+        type: "room_presence",
+        roomId,
+        participants: getRoomParticipantCount(roomId),
+    });
+}
+
+
+  //WEBSOCKET CONNECTION
 
 
 wss.on("connection", (ws, request) => {
@@ -66,7 +136,7 @@ wss.on("connection", (ws, request) => {
         return;
     }
 
-    // GET TOKEN FROM URL
+    //READ JWT TOKEN
   
 
     const queryParams = new URLSearchParams(
@@ -77,7 +147,7 @@ wss.on("connection", (ws, request) => {
 
    
    
-    // VERIFY USER
+    //VERIFY USER
    
 
     const userId = checkUser(token);
@@ -94,8 +164,7 @@ wss.on("connection", (ws, request) => {
         return;
     }
 
-  
-    // CREATE CONNECTED USER
+     //REGISTER CONNECTED USER
  
 
     const user: User = {
@@ -123,7 +192,7 @@ wss.on("connection", (ws, request) => {
     );
 
 
-    // HANDLE MESSAGE
+     //HANDLE MESSAGES
     
 
     ws.on("message", async (data) => {
@@ -134,8 +203,16 @@ wss.on("connection", (ws, request) => {
                 data.toString()
             );
 
+            if (
+                !parsedData ||
+                typeof parsedData !== "object" ||
+                Array.isArray(parsedData)
+            ) {
+                sendError(ws, "Invalid message");
+                return;
+            }
 
-            // JOIN ROOM
+             //JOIN ROOM
 
 
             if (parsedData.type === "join_room") {
@@ -176,9 +253,34 @@ wss.on("connection", (ws, request) => {
                     return;
                 }
 
-                // Prevent duplicate room join
-                if (!user.rooms.includes(roomId)) {
+                // Prevent duplicate membership.
+                const alreadyJoined =
+                    user.rooms.includes(roomId);
+
+                if (!alreadyJoined) {
                     user.rooms.push(roomId);
+                }
+
+                /*
+                 * Initialize a room only once.
+                 *
+                 * The first client may provide its existing local
+                 * elements. Later clients must receive the current
+                 * shared scene instead of replacing it.
+                 */
+
+                if (!roomCanvases.has(roomId)) {
+                    const initialElements =
+                        Array.isArray(parsedData.elements) &&
+                        parsedData.elements.length <=
+                            MAX_CANVAS_ELEMENTS
+                            ? parsedData.elements
+                            : [];
+
+                    roomCanvases.set(
+                        roomId,
+                        initialElements
+                    );
                 }
 
                 // Tell client that room was joined
@@ -189,6 +291,21 @@ wss.on("connection", (ws, request) => {
                     })
                 );
 
+                // Send the existing shared canvas to this client.
+                ws.send(
+                    JSON.stringify({
+                        type: "canvas_state",
+                        roomId,
+                        elements:
+                        roomCanvases.get(roomId) ?? [],
+                    })
+                );
+
+                // Notify room members about the participant count.
+                if (!alreadyJoined) {
+                    broadcastRoomPresence(roomId);
+                }
+
                 console.log(
                     `User ${userId} joined room ${roomId}`
                 );
@@ -197,9 +314,9 @@ wss.on("connection", (ws, request) => {
             }
 
 
-            // LEAVE ROOM
-         
+             // LEAVE ROOM
 
+        
             if (parsedData.type === "leave_room") {
 
                 const roomId = Number(
@@ -220,6 +337,9 @@ wss.on("connection", (ws, request) => {
                     return;
                 }
 
+                const wasJoined =
+                    user.rooms.includes(roomId);
+
                 // Remove room from user's rooms
                 user.rooms = user.rooms.filter(
                     (id) => id !== roomId
@@ -233,6 +353,10 @@ wss.on("connection", (ws, request) => {
                     })
                 );
 
+                if (wasJoined) {
+                    broadcastRoomPresence(roomId);
+                }
+
                 console.log(
                     `User ${userId} left room ${roomId}`
                 );
@@ -240,8 +364,88 @@ wss.on("connection", (ws, request) => {
                 return;
             }
 
+            
+            
+            // LIVE CANVAS SYNCHRONIZATION
+       
+            //  The frontend sends a canvas_update whenever the local
+            //  scene changes. We store the latest scene and broadcast
+            //  it to other users in the same room.
+            
+            
 
-            // CHAT
+                if (parsedData.type === "canvas_update") {
+                const roomId = Number(
+                    parsedData.roomId
+                );
+
+                if (
+                    !Number.isInteger(roomId) ||
+                    roomId <= 0
+                ) {
+                    sendError(ws, "Invalid roomId");
+                    return;
+                }
+
+                // Only room members can update its canvas.
+                if (!user.rooms.includes(roomId)) {
+                    sendError(
+                        ws,
+                        "You have not joined this room"
+                    );
+                    return;
+                }
+
+                const elements = parsedData.elements;
+
+                if (
+                    !Array.isArray(elements) ||
+                    elements.length > MAX_CANVAS_ELEMENTS
+                ) {
+                    sendError(
+                        ws,
+                        "Invalid canvas elements"
+                    );
+                    return;
+                }
+
+                // Bound the serialized scene size.
+                const serializedElements =
+                    JSON.stringify(elements);
+
+                if (
+                    serializedElements.length >
+                    MAX_CANVAS_SIZE
+                ) {
+                    sendError(
+                        ws,
+                        "Canvas snapshot is too large"
+                    );
+                    return;
+                }
+
+                // Keep the latest version of the room's canvas.
+                roomCanvases.set(roomId, elements);
+
+                // Broadcast to everyone else, but not the sender.
+                // The joining client and other clients use canvas_state.
+                broadcastToRoom(
+                    roomId,
+                    {
+                        type: "canvas_state",
+                        roomId,
+                        elements,
+                        updatedBy: userId,
+                    },
+                    ws
+                );
+
+                return;
+            }
+
+
+
+        // CHAT
       
 
             if (parsedData.type === "chat") {
@@ -336,31 +540,18 @@ wss.on("connection", (ws, request) => {
           
                 // BROADCAST MESSAG
           
-
-                users.forEach((roomUser) => {
-
-                    if (
-                        roomUser.rooms.includes(roomId) &&
-                        roomUser.ws.readyState ===
-                            WebSocket.OPEN
-                    ) {
-
-                        roomUser.ws.send(
-                            JSON.stringify({
-                                type: "chat",
-                                id: chat.id,
-                                roomId,
-                                message: chat.message,
-                                userId: chat.userId,
-                            })
-                        );
-                    }
+                broadcastToRoom(roomId, {
+                    type: "chat",
+                    id: chat.id,
+                    roomId,
+                    message: chat.message,
+                    userId: chat.userId,
                 });
 
                 return;
             }
 
-            // UNKNOWN MESSAGE TYPE
+              //UNKNOWN MESSAGE
    
 
             sendError(
@@ -388,12 +579,20 @@ wss.on("connection", (ws, request) => {
 
     ws.on("close", () => {
 
+        // Remember the rooms so their participant counts can be updated.
+        const joinedRooms = [...user.rooms];
+
         const index = users.findIndex(
-            (x) => x.ws === ws
+            (connectedUser) =>
+            connectedUser.ws === ws
         );
 
         if (index !== -1) {
             users.splice(index, 1);
+        }
+
+        for (const roomId of joinedRooms) {
+            broadcastRoomPresence(roomId);
         }
 
         console.log(
